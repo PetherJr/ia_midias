@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Atendimento Salon Line 💁🏾‍♀️</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>IA Mídias Salon Line 💕</h1>
+    <form method="post">
+        <textarea name="texto" placeholder="Digite sua pergunta aqui...">{{ pergunta or '' }}</textarea><br>
+        <button type="submit">Enviar</button>
+    </form>
+
+    {% if resposta %}
+        <div class="resposta">
+            <strong>Resposta:</strong>
+            <p>{{ resposta }}</p>
+        </div>
+    {% endif %}
+</body>
+</html>
