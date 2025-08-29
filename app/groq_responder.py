@@ -1,93 +1,88 @@
 import os
 import pandas as pd
-import random
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# Carrega variáveis de ambiente (.env)
 load_dotenv()
 
-# Carrega a planilha de produtos
+# Inicializa cliente OpenAI com base no Groq
+client = OpenAI(
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
+)
+
+# Carrega planilha de produtos
 produtos_df = pd.read_excel("data/SIGEQ276 - Cadastro de item.xlsx", usecols=[0, 1, 2, 3, 4])
 produtos_df.columns = ["Nome", "Cod_Terceiro", "Nome_Marca", "Titulo_Site", "Descricao"]
 
 def gerar_resposta_com_groq(exemplo: str, pergunta: str) -> str:
-    client = OpenAI(api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1")
-
-    # Detecta produtos relacionados ao tipo de cabelo mencionado
-    termos_cabelo = {
-        "cacheado": ["cacheado", "cachos", "ondulado", "crespo"],
-        "liso": ["liso", "alisar", "alisado", "chapado"],
-        "loiro": ["loiro", "descolorido"],
-        "danificado": ["danificado", "quebra", "ressecado"],
-    }
-
-    # Filtra produtos por palavras-chave
-    candidatos = []
+    produto_encontrado = None
 
     for _, row in produtos_df.iterrows():
-        descricao = str(row["Descricao"]).lower()
-        if any(termo in pergunta.lower() for termo in descricao.split()):
-            candidatos.append(row)
+        termos_para_buscar = [
+            str(row["Nome"]).lower(),
+            str(row["Titulo_Site"]).lower(),
+            str(row["Nome_Marca"]).lower()
+        ]
+        if any(termo in pergunta.lower() for termo in termos_para_buscar):
+            produto_encontrado = row
+            break
 
-    # Se nenhum candidato por descrição, tenta por tipo de cabelo
-    if not candidatos:
-        for tipo, palavras in termos_cabelo.items():
-            if any(p in pergunta.lower() for p in palavras):
-                for _, row in produtos_df.iterrows():
-                    if any(p in str(row["Descricao"]).lower() for p in palavras):
-                        candidatos.append(row)
-                break
-
-    # Se ainda não encontrou, responde que vai ajudar no privado
-    if not candidatos:
-        return "Oi, miga! 💕 Ainda não achei um produtinho exato aqui, mas me chama no privado que eu te ajudo com todo carinho! 💌✨"
-
-    # Escolhe aleatoriamente um dos candidatos
-    produto = random.choice(candidatos)
-
-    contexto_produto = (
-        f"Produto: {produto['Nome']}\n"
-        f"Marca: {produto['Nome_Marca']}\n"
-        f"Código: {produto['Cod_Terceiro']}\n"
-        f"Título no site: {produto['Titulo_Site']}\n"
-        f"Descrição: {produto['Descricao']}"
-    )
-
+    # Prompt base com tom criativo adaptativo
     prompt = f"""
-Você é um atendente da Salon Line. Responda comentários com simpatia, emojis, proximidade e sempre com base nos dados abaixo:
+Você é meu assistente de respostas criativas para redes sociais. Sua função é responder
+comentários de clientes com criatividade, leveza e empatia, como se fosse uma marca com
+personalidade divertida e humana.
 
-⚠️ NUNCA cite produtos ou marcas concorrentes.  
-⚠️ NUNCA invente produtos que não estão no sistema.  
-⚠️ Em caso de reclamação, convide para o privado com carinho.  
-⚠️ Consulte apenas os produtos abaixo para responder.
+Diretrizes:
+Analise o comentário recebido e adapte sua resposta ao tom do cliente:
+— Se for fofo ou carinhoso, responda de forma doce e acolhedora.
+— Se for engraçado ou irônico, acompanhe no mesmo tom, com humor leve e criativo.
+— Se for sério, responda com leveza ou acolhimento, mantendo a empatia.
+— Se for um pedido fora do esperado (ex: patrocínio ou mimos), desvie com bom humor e
+originalidade, sem jamais prometer ou negar diretamente.
 
-TOM E VOZ:
-- Use linguagem amigável, empoderadora e acolhedora
-- Use emojis como 💕, ✨, 💁🏾‍♀️, 😍
-- Fale com carinho: “miga”, “você arrasa”, “vamos juntas!”
+Estilo da Resposta:
+Gere uma única resposta curta e criativa, estilo Twitter (máximo 2 linhas).
+Use emojis com moderação e inteligência.
 
-EXEMPLO DE RESPOSTA:
+Quando possível, adicione referências de filmes, séries, músicas ou situações do cotidiano.
+Nunca use sarcasmo ofensivo, ironia pesada ou qualquer linguagem negativa. A resposta
+deve sempre manter um tom leve, espirituoso ou acolhedor, mesmo diante de críticas.
+
+Inspirações:
+Marcas como Duolingo, Netflix e Salon Line.
+Sua missão é manter o público engajado, fazer sorrir e fortalecer o vínculo com a marca.
+
+Exemplo de atendimento:
 {exemplo}
 
-PERGUNTA DO CLIENTE:
+Comentário do cliente:
 {pergunta}
-
-DADOS DO PRODUTO:
-{contexto_produto}
-
-RESPOSTA:
 """
 
-    try:
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=400
-        )
+    # Se achou um produto, insere contexto técnico
+    if produto_encontrado is not None:
+        prompt += f"""
 
-        return response.choices[0].message.content.strip()
+Informações sobre o produto mencionado:
+- Nome: {produto_encontrado['Nome']}
+- Marca: {produto_encontrado['Nome_Marca']}
+- Código: {produto_encontrado['Cod_Terceiro']}
+- Título no site: {produto_encontrado['Titulo_Site']}
+- Descrição: {produto_encontrado['Descricao']}
+"""
 
-    except Exception as e:
-        print(f"Erro ao gerar resposta: {e}")
-        return "Poxa, algo deu errado aqui do meu ladinho 😢 Me chama no privado que vou te ajudar rapidinho, miga! 💕"
+    # Final do prompt
+    prompt += "\nResposta:"
+
+    # Chamada ao modelo Groq com LLaMA 3
+    response = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.9,
+        max_tokens=250
+    )
+
+    return response.choices[0].message.content.strip()
