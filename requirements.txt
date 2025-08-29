@@ -5,3 +5,4 @@ openai
 python-dotenv
 scikit-learn
 openpyxl
+jinja2
