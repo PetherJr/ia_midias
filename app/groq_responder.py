@@ -3,39 +3,52 @@ import pandas as pd
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Carrega variáveis do .env
 load_dotenv()
 
-# Cliente OpenAI para Groq
+# Cliente OpenAI com base no Groq
 client = OpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Carrega planilha
+# Carrega base de produtos
 produtos_df = pd.read_excel("data/SIGEQ276 - Cadastro de item.xlsx", usecols=[0, 1, 2, 3, 4])
 produtos_df.columns = ["Nome", "Cod_Terceiro", "Nome_Marca", "Titulo_Site", "Descricao"]
 
-# Palavras que indicam intenção de recomendação
+# Palavras que indicam pedido de recomendação
 PALAVRAS_CHAVE_INDICACAO = [
-    "indica", "indicar", "recomenda", "recomendaria", "usar", "serve", "qual produto", 
+    "indica", "indicar", "recomenda", "recomendaria", "usar", "serve", "qual produto",
     "o que usar", "bom pra", "pode usar", "qual é bom", "melhor produto", "sugere", "dica"
 ]
+
+# Intenções e suas palavras associadas
+INTENCOES = {
+    "pintar": ["pintar", "tingir", "colorir", "coloração", "matizador", "tonalizante"],
+    "hidratar": ["hidratar", "nutrir", "hidratação", "nutrição", "máscara", "creme"],
+    "alisar": ["alisar", "relaxar", "progressiva", "liso", "escova", "alisante"],
+    "crescimento": ["crescer", "crescimento", "fortalecer", "queda", "antiqueda"]
+}
+
+def identificar_intencao(pergunta: str) -> str:
+    for intencao, palavras in INTENCOES.items():
+        if any(p in pergunta for p in palavras):
+            return intencao
+    return None
 
 def gerar_resposta_com_groq(exemplo: str, pergunta: str) -> str:
     pergunta_lower = pergunta.lower()
     deseja_indicacao = any(p in pergunta_lower for p in PALAVRAS_CHAVE_INDICACAO)
+    intencao = identificar_intencao(pergunta_lower)
 
     produto_relevante = None
 
-    if deseja_indicacao:
+    if deseja_indicacao and intencao:
         for _, row in produtos_df.iterrows():
             descricao = str(row["Descricao"]).lower()
-            if any(p in descricao for p in pergunta_lower.split()):
+            if any(p in descricao for p in INTENCOES[intencao]):
                 produto_relevante = row
                 break
 
-    # Prompt principal
     prompt = f"""
 (resposta única, tom adaptativo, nunca negativa)
 
@@ -49,7 +62,7 @@ Diretrizes:
 — Se for uma reclamação sensível ou grave (como queda de cabelo, alergia, irritação), nunca brinque. Use tom sério e acolhedor. Demonstre empatia, peça desculpas pelo ocorrido e oriente o cliente a nos chamar no direct ou SAC para tratarmos com prioridade e cuidado.
 — Se for um pedido fora do esperado (ex: patrocínio ou mimos), desvie com bom humor e
 originalidade, sem jamais prometer ou negar diretamente.
-— Se for indicação de produto, indique as marcas mais famosas da Salon Line, (Obviamente no mesmo contexto de curvautura ou necessidade que o cliente pediu.)
+— Se for indicação de produto, indique as marcas mais famosas da Salon Line, (Obviamente no mesmo contexto de curvatura ou necessidade que o cliente pediu.)
 
 Estilo da Resposta:
 — Gere uma única resposta curta e criativa, estilo Twitter (máximo 2 linhas).
@@ -61,12 +74,10 @@ Estilo da Resposta:
 Inspirações:
 Salon Line
 
-
 Comentário do cliente:
-"{pergunta}"
+\"{pergunta}\"
 """
 
-    # Adiciona produto se for uma indicação válida E compatível
     if deseja_indicacao and produto_relevante is not None:
         prompt += f"""
 
@@ -78,13 +89,11 @@ Produto encontrado:
 - Descrição: {produto_relevante['Descricao']}
 """
     elif deseja_indicacao:
-        # Cliente quer recomendação, mas nenhum produto casa
         prompt += """
 ⚠️ Nenhum produto da base é compatível com essa necessidade.  
 ⚠️ Responda com empatia ou leveza, sem citar produto.
 """
     else:
-        # Não é uma pergunta de indicação
         prompt += """
 ⚠️ O comentário não é uma pergunta de indicação.  
 ⚠️ Responda com criatividade, bom humor ou carinho — sem sugerir produto.
@@ -92,7 +101,6 @@ Produto encontrado:
 
     prompt += "\nResposta:"
 
-    # Envia para Groq (LLaMA3)
     response = client.chat.completions.create(
         model="llama3-70b-8192",
         messages=[{"role": "user", "content": prompt}],
